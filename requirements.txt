@@ -1,0 +1,35 @@
+
+# Deep learning
+torch>=2.2.0
+torchvision>=0.17.0
+torchaudio>=2.2.0
+
+# Transformers and pretrained encoders
+transformers>=4.40.0
+tokenizers>=0.19.0
+huggingface-hub>=0.22.0
+
+# Image processing
+Pillow>=10.0.0
+numpy>=1.26.0
+
+# Configuration and data handling
+PyYAML>=6.0.1
+pandas>=2.1.0
+tqdm>=4.66.0
+
+# Evaluation
+scikit-learn>=1.4.0
+nltk>=3.8.1
+
+# Visualization and attention analysis
+matplotlib>=3.8.0
+
+# Application interface
+gradio>=4.44.0
+
+# Testing
+pytest>=8.0.0
+
+# Utilities
+safetensors>=0.4.2
