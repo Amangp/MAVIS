@@ -124,4 +124,3 @@ Desktop.ini
 *.pid
 
 src/tests
-pytest.ini
