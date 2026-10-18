@@ -4,31 +4,13 @@ from typing import Optional
 
 import torch
 import torch.nn as nn
-
+from src.models.answer_decoder import AnswerDecoder
 from src.models.question_aware import QuestionAwareFeatureDistilling
 from src.models.text_encoder import TextEncoder
 from src.models.vision_encoder import VisionTransformerEncoder
 
 
 class MAVISCrossModalFusion(nn.Module):
-    """
-    MAVIS end-to-end VQA model:
-      image -> Vision Transformer -> visual patch tokens
-      question IDs -> Text Transformer -> word tokens
-      visual + word tokens -> QuestionAwareFeatureDistilling
-      pooled fused representations -> answer classifier
-
-    All encoders are randomly initialized (no pretrained weights are loaded).
-
-    Expected image input: [B, 3, 224, 224]
-    Expected question input: [B, L] with <PAD> ID 0
-    Output dict:
-      logits: [B, num_answers]
-      image_tokens: [B, 197, hidden_dim]
-      question_tokens: [B, L, hidden_dim]
-      attention_map: [B, L, 197]
-      relevance_scores: [B, 197]
-    """
 
     def __init__(
         self,
@@ -83,14 +65,10 @@ class MAVISCrossModalFusion(nn.Module):
 
         # Pool visual and question sequences after question-aware interaction.
         # Concatenation preserves both modalities for answer prediction.
-        self.answer_head = nn.Sequential(
-            nn.Linear(hidden_dim * 4, hidden_dim * 2),
-            nn.GELU(),
-            nn.Dropout(dropout),
-            nn.Linear(hidden_dim * 2, hidden_dim),
-            nn.GELU(),
-            nn.Dropout(dropout),
-            nn.Linear(hidden_dim, num_answers),
+        self.answer_decoder = AnswerDecoder(
+            hidden_dim=hidden_dim,
+            num_answers=num_answers,
+            dropout=dropout,
         )
 
     @staticmethod
@@ -147,7 +125,7 @@ class MAVISCrossModalFusion(nn.Module):
             [v_pooled, q_pooled, v_pooled * q_pooled, torch.abs(v_pooled - q_pooled)],
             dim=-1,
         )
-        logits = self.answer_head(joint)
+        logits = self.answer_decoder(joint)
 
         output = {
             "logits": logits,
