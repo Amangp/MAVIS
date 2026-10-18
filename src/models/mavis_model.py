@@ -61,7 +61,7 @@ class MAVIS(nn.Module):
             patch_size=vision["patch_size"],
             visual_dim=vision["visual_dim"],
             text_embed_dim=text["embedding_dim"],
-            hidden_dim=text["hidden_dim"],
+            hidden_dim=fusion["hidden_dim"],
             vision_depth=vision["depth"],
             vision_heads=vision["num_heads"],
             text_depth=text["depth"],
@@ -69,8 +69,14 @@ class MAVIS(nn.Module):
             fusion_heads=fusion["num_heads"],
             max_question_length=data["max_question_length"],
             dropout=text["dropout"],
-            pad_token_id=data["pad_token_id"],
+            pad_token_id=data.get("pad_token_id", data["caption_special_token_ids"]["pad"]),
             alpha=fusion["alpha"],
+            vision_mlp_ratio=vision["mlp_ratio"],
+            vision_dropout=vision["dropout"],
+            text_dropout=text["dropout"],
+            fusion_dropout=fusion["dropout"],
+            answer_hidden_dim=answer["hidden_dim"],
+            answer_dropout=answer["dropout"],
         )
 
         # -------------------------------------------------
@@ -100,6 +106,7 @@ class MAVIS(nn.Module):
 
         self.num_answers = answer_vocab_size
         self.caption_vocab_size = caption_vocab_size
+        self.config = config
 
     # -----------------------------------------------------
     # VQA forward pass
@@ -170,7 +177,12 @@ class MAVIS(nn.Module):
         visual_tokens = self.vision_encoder(images)
 
         if max_new_tokens is None:
-            max_new_tokens = self.caption_decoder.max_length - 1
+            max_new_tokens = int(
+                self.config["model"]["caption_decoder"].get(
+                    "max_new_tokens", self.caption_decoder.max_length - 1
+                )
+            )
+        max_new_tokens = min(int(max_new_tokens), self.caption_decoder.max_length - 1)
 
         return self.caption_decoder.generate(
             visual_tokens,

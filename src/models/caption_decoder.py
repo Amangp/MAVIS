@@ -2,27 +2,20 @@ from __future__ import annotations
 
 import torch
 import torch.nn as nn
-import yaml
-from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-CONFIG_PATH = PROJECT_ROOT / "config.yaml"
-
-with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-    config = yaml.safe_load(f)
 class CaptionDecoder(nn.Module):
     def __init__(
         self,
         caption_vocab_size: int,
-        visual_dim=config["model"]["vision"]["visual_dim"],
-        hidden_dim=config["model"]["caption_decoder"]["hidden_dim"],
-        num_heads=config["model"]["caption_decoder"]["num_heads"],
-        num_layers=config["model"]["caption_decoder"]["num_layers"],
-        max_length=config["data"]["max_caption_length"],
-        dropout=config["model"]["caption_decoder"]["dropout"],
-        pad_token_id=config["data"]["caption_special_token_ids"]["pad"],
-        bos_token_id=config["data"]["caption_special_token_ids"]["bos"],
-        eos_token_id=config["data"]["caption_special_token_ids"]["eos"],
+        visual_dim: int,
+        hidden_dim: int,
+        num_heads: int,
+        num_layers: int,
+        max_length: int,
+        dropout: float,
+        pad_token_id: int = 0,
+        bos_token_id: int = 1,
+        eos_token_id: int = 2,
     ) -> None:
         super().__init__()
 

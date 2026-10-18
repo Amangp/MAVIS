@@ -5,6 +5,7 @@ import torch.nn as nn
 
 class VisionTransformerEncoder(nn.Module):
     def __init__(
+        
         self,
         image_size=224,
         patch_size=16,
@@ -18,6 +19,14 @@ class VisionTransformerEncoder(nn.Module):
 
         if image_size % patch_size != 0:
             raise ValueError("image_size must be divisible by patch_size")
+        if dim % num_heads != 0:
+            raise ValueError("dim must be divisible by num_heads.")
+        if depth <= 0:
+            raise ValueError("depth must be positive.")
+        if mlp_ratio <= 0:
+            raise ValueError("mlp_ratio must be positive.")
+        if not 0.0 <= dropout < 1.0:
+            raise ValueError("dropout must be in [0, 1).")
 
         self.image_size = image_size
         self.patch_size = patch_size

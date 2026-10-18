@@ -30,6 +30,12 @@ class MAVISCrossModalFusion(nn.Module):
         dropout:  float = 0.1,
         pad_token_id: int = 0,
         alpha: float = 0.5,
+        vision_mlp_ratio: float = 4.0,
+        vision_dropout: float | None = None,
+        text_dropout: float | None = None,
+        fusion_dropout: float | None = None,
+        answer_hidden_dim: int | None = None,
+        answer_dropout: float | None = None,
     ):
         super().__init__()
         if hidden_dim % fusion_heads != 0:
@@ -38,13 +44,24 @@ class MAVISCrossModalFusion(nn.Module):
             raise ValueError("num_answers must be positive.")
 
         self.pad_token_id = pad_token_id
+        vision_dropout = dropout if vision_dropout is None else vision_dropout
+        text_dropout = dropout if text_dropout is None else text_dropout
+        fusion_dropout = dropout if fusion_dropout is None else fusion_dropout
+        answer_hidden_dim = hidden_dim if answer_hidden_dim is None else answer_hidden_dim
+        answer_dropout = dropout if answer_dropout is None else answer_dropout
+        if answer_hidden_dim != hidden_dim:
+            raise ValueError(
+                "answer_hidden_dim must equal hidden_dim because the fused joint feature "
+                "contains four hidden_dim vectors."
+            )
         self.vision_encoder = VisionTransformerEncoder(
             image_size=image_size,
             patch_size=patch_size,
             dim=visual_dim,
             depth=vision_depth,
             num_heads=vision_heads,
-            dropout=dropout,
+            mlp_ratio=vision_mlp_ratio,
+            dropout=vision_dropout,
         )
         self.text_encoder = TextEncoder(
             vocab_size=vocab_size,
@@ -52,7 +69,7 @@ class MAVISCrossModalFusion(nn.Module):
             hidden_dim=hidden_dim,
             num_heads=text_heads,
             num_layers=text_depth,
-            dropout=dropout,
+            dropout=text_dropout,
             padding_idx=pad_token_id,
             max_length=max_question_length,
         )
@@ -61,18 +78,21 @@ class MAVISCrossModalFusion(nn.Module):
             question_dim=hidden_dim,
             hidden_dim=hidden_dim,
             num_heads=fusion_heads,
-            dropout=dropout,
+            dropout=fusion_dropout,
             alpha=alpha
         )
 
         # Pool visual and question sequences after question-aware interaction.
         # Concatenation preserves both modalities for answer prediction.
         self.answer_decoder = AnswerDecoder(
-            hidden_dim=hidden_dim,
+            hidden_dim=answer_hidden_dim,
             num_answers=num_answers,
-            dropout=dropout,
+            dropout=answer_dropout,
         )
-
+    @property
+    def answer_head(self):
+        """Backward-compatible access to the answer classification layers."""
+        return self.answer_decoder.decoder
     @staticmethod
     def masked_mean(tokens: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
         weights = mask.unsqueeze(-1).to(tokens.dtype)
