@@ -27,8 +27,9 @@ class MAVISCrossModalFusion(nn.Module):
         text_heads: int = 4,
         fusion_heads: int = 8,
         max_question_length: int = 32,
-        dropout: float = 0.1,
+        dropout:  float = 0.1,
         pad_token_id: int = 0,
+        alpha: float = 0.5,
     ):
         super().__init__()
         if hidden_dim % fusion_heads != 0:
@@ -61,6 +62,7 @@ class MAVISCrossModalFusion(nn.Module):
             hidden_dim=hidden_dim,
             num_heads=fusion_heads,
             dropout=dropout,
+            alpha=alpha
         )
 
         # Pool visual and question sequences after question-aware interaction.

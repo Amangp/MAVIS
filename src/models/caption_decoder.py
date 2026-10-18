@@ -2,23 +2,27 @@ from __future__ import annotations
 
 import torch
 import torch.nn as nn
+import yaml
+from pathlib import Path
 
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+CONFIG_PATH = PROJECT_ROOT / "config.yaml"
 
+with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+    config = yaml.safe_load(f)
 class CaptionDecoder(nn.Module):
-    """Autoregressive caption decoder conditioned on visual tokens."""
-
     def __init__(
         self,
         caption_vocab_size: int,
-        visual_dim: int = 768,
-        hidden_dim: int = 512,
-        num_heads: int = 8,
-        num_layers: int = 4,
-        max_length: int = 40,
-        dropout: float = 0.1,
-        pad_token_id: int = 0,
-        bos_token_id: int = 1,
-        eos_token_id: int = 2,
+        visual_dim=config["model"]["vision"]["visual_dim"],
+        hidden_dim=config["model"]["caption_decoder"]["hidden_dim"],
+        num_heads=config["model"]["caption_decoder"]["num_heads"],
+        num_layers=config["model"]["caption_decoder"]["num_layers"],
+        max_length=config["data"]["max_caption_length"],
+        dropout=config["model"]["caption_decoder"]["dropout"],
+        pad_token_id=config["data"]["caption_special_token_ids"]["pad"],
+        bos_token_id=config["data"]["caption_special_token_ids"]["bos"],
+        eos_token_id=config["data"]["caption_special_token_ids"]["eos"],
     ) -> None:
         super().__init__()
 

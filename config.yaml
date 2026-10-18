@@ -1,0 +1,132 @@
+project:
+  name: MAVIS
+  seed: 42
+  output_dir: outputs
+  log_dir: outputs/logs
+  checkpoint_dir: outputs/checkpoints
+  results_dir: outputs/results
+
+paths:
+  vqa:
+    train_questions: datasets/v2_Questions_Train_mscoco/v2_OpenEnded_mscoco_train2014_questions.json
+    train_annotations: datasets/v2_Annotations_Train_mscoco/v2_mscoco_train2014_annotations.json
+    val_questions: datasets/v2_Questions_Val_mscoco/v2_OpenEnded_mscoco_val2014_questions.json
+    val_annotations: datasets/v2_Annotations_Val_mscoco/v2_mscoco_val2014_annotations.json
+    train_images: datasets/train2014/train2014
+    val_images: datasets/val2014/val2014
+
+  captions:
+    train_annotations: datasets/annotations_trainval2014/annotations/captions_train2014.json
+    val_annotations: datasets/annotations_trainval2014/annotations/captions_val2014.json
+    train_images: datasets/train2014/train2014
+    val_images: datasets/val2014/val2014
+
+  vocab:
+    question: vocab/word2idx.pkl
+    answer: vocab/ans2idx.pkl
+    caption: vocab/caption_word2idx.json
+    stats: vocab/vocab_stats.json
+
+  outputs:
+    answer_checkpoint: outputs/checkpoints/mavis_answer_best.pt
+    caption_checkpoint: outputs/checkpoints/mavis_caption_best.pt
+    answer_metrics: outputs/results/vqa_metrics.json
+    caption_metrics: outputs/results/caption_metrics.json
+
+data:
+  image_size: 224
+  image_channels: 3
+  max_question_length: 32
+  max_caption_length: 40
+  pad_token_id: 0
+
+  # Answer vocabulary generated for the current VQA setup.
+  num_answers: 7500
+
+  # Caption vocabulary: must match the generated caption_word2idx.json.
+  caption_vocab_size: null
+  caption_special_tokens:
+    pad: "<PAD>"
+    bos: "<BOS>"
+    eos: "<EOS>"
+    unk: "<UNK>"
+  caption_special_token_ids:
+    pad: 0
+    bos: 1
+    eos: 2
+    unk: 3
+  caption_min_frequency: 5
+  caption_max_vocab_size: 20000
+
+model:
+  vision:
+    image_size: 224
+    patch_size: 16
+    visual_dim: 768
+    depth: 14
+    num_heads: 12
+    mlp_ratio: 4.0
+    dropout: 0.1
+
+  text:
+    embedding_dim: 300
+    hidden_dim: 512
+    depth: 2
+    num_heads: 4
+    dropout: 0.1
+
+  question_aware_fusion:
+    hidden_dim: 512
+    num_heads: 8
+    dropout: 0.1
+    alpha: 0.5
+
+  answer_decoder:
+    hidden_dim: 512
+    dropout: 0.1
+    loss: bce_with_logits
+
+  caption_decoder:
+    hidden_dim: 512
+    num_heads: 8
+    num_layers: 4
+    dropout: 0.1
+    decoding: greedy
+    max_new_tokens: 30
+    loss: cross_entropy
+
+training:
+  answer:
+    enabled: true
+    batch_size: 8
+    epochs: 20
+    learning_rate: 0.0002
+    weight_decay: 0.0001
+    num_workers: 0
+    pin_memory: true
+    gradient_clip_norm: 1.0
+    mixed_precision: false
+    save_every_epoch: true
+
+  caption:
+    enabled: true
+    batch_size: 8
+    epochs: 20
+    learning_rate: 0.0002
+    weight_decay: 0.0001
+    num_workers: 0
+    pin_memory: true
+    gradient_clip_norm: 1.0
+    mixed_precision: false
+    save_every_epoch: true
+
+evaluation:
+  batch_size: 8
+  num_workers: 0
+  answer_top_k: 5
+  caption_max_new_tokens: 30
+
+runtime:
+  device: auto
+  deterministic: false
+  fail_on_missing_paths: true
