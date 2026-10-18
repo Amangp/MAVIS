@@ -122,3 +122,6 @@ Desktop.ini
 *.bak
 *.log
 *.pid
+
+src/tests
+pytest.ini
