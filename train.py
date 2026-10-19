@@ -380,7 +380,10 @@ def train_caption_epoch(
         scaler.update()
         total += float(loss.detach())
         batches += 1
-        progress.set_postfix(loss=f"{loss.item():.3f}")
+        progress.set_postfix(
+            loss=f"{loss.item():.3f}",
+            token_acc=f"{correct_tokens / max(valid_tokens, 1) * 100:.2f}%"
+        )
         if max_batches and batches >= max_batches:
             break
     if batches == 0:
@@ -451,12 +454,13 @@ def validate_caption(model, loader, device, pad_id, max_batches=0):
         count += valid_tokens
         if max_batches and i >= max_batches:
             break
-    predictions = logits.argmax(dim=-1)
-    valid = targets.ne(pad_id)
-
-    correct_tokens += int(
-        (predictions.eq(targets) & valid).sum()
-    )
+        predictions = logits.argmax(dim=-1)
+        valid = targets.ne(pad_id)
+    
+        correct_tokens += int(
+            (predictions.eq(targets) & valid).sum()
+        )
+    
     if not count:
         raise RuntimeError("Caption validation processed zero non-padding tokens.")
     
