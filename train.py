@@ -8,7 +8,7 @@ import pickle
 import random
 from pathlib import Path
 from typing import Any
-
+from functools import partial
 import torch
 import torch.nn.functional as F
 import yaml
@@ -172,7 +172,10 @@ def build_dataloaders(config: dict[str, Any], args):
             max_length=int(data["max_caption_length"]),
             strict_images=True,
         )
-        cap_collate = lambda batch: caption_collate_fn(batch, pad_token_id=pad_id)
+        cap_collate = partial(
+            caption_collate_fn,
+            pad_token_id=pad_id
+        )
         loaders["caption_train"] = make_loader(
             train_ds,
             caption_cfg["batch_size"],
