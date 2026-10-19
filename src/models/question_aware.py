@@ -84,10 +84,6 @@ class QuestionAwareFeatureDistilling(nn.Module):
                 print("Finite maximum:", finite_values.max().item())
 
             raise ValueError("visual_features contains NaN or infinity.")
-        if not torch.isfinite(visual_features).all():
-            raise ValueError(
-                "visual_features contains NaN or infinity."
-            )
 
         if not torch.isfinite(question_features).all():
             raise ValueError(

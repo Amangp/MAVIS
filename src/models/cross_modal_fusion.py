@@ -146,7 +146,7 @@ class MAVISCrossModalFusion(nn.Module):
         fused = self.cross_modal_fusion(
             visual_features=visual_tokens,
             question_features=question_tokens,
-            question_maskf=question_mask,
+            question_mask=question_mask,
             visual_mask=visual_mask,
         )
 
