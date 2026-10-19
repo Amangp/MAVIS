@@ -309,7 +309,7 @@ def train_vqa_epoch(
             ]
             loss = (
                 F.binary_cross_entropy_with_logits(
-                    logits.float(), targets.float(), reduction="none"
+                    logits.float(), targets.float(), reduction="mean"
                 )
                 .sum(dim=1)
                 .mean()
@@ -450,7 +450,7 @@ def validate_vqa(model, loader, device, max_batches=0):
         logits = model.forward_vqa(images, questions, return_attention=False)["logits"]
         loss = (
             F.binary_cross_entropy_with_logits(
-                logits.float(), targets.float(), reduction="none"
+                logits.float(), targets.float(), reduction="mean"
             )
             .sum(dim=1)
             .mean()
