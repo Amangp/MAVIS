@@ -105,7 +105,7 @@ training:
     num_workers: 2
     pin_memory: true
     gradient_clip_norm: 1.0
-    mixed_precision: true
+    mixed_precision: false
     save_every_epoch: true
 
   caption:
@@ -117,7 +117,7 @@ training:
     num_workers: 2
     pin_memory: true
     gradient_clip_norm: 1.0
-    mixed_precision: true
+    mixed_precision: false
     save_every_epoch: true
 
 evaluation:
