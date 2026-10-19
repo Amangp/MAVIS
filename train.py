@@ -1,5 +1,7 @@
 from __future__ import annotations
-
+import math
+import re
+from collections import Counter
 import argparse
 import json
 import pickle
@@ -206,6 +208,82 @@ def build_dataloaders(config: dict[str, Any], args):
         raise ValueError("Both VQA and caption training are disabled in config.yaml.")
     return loaders, sizes
 
+def vqa_soft_accuracy(logits, targets):
+    """VQA consensus-style accuracy from the dataset's soft answer targets."""
+    predictions = logits.argmax(dim=1)
+    return targets.gather(1, predictions.unsqueeze(1)).mean()
+
+
+def caption_token_accuracy(logits, targets, pad_id):
+    """Token accuracy excluding padding positions."""
+    predictions = logits.argmax(dim=-1)
+    valid = targets.ne(pad_id)
+
+    if not valid.any():
+        return 0.0
+
+    return (
+        (predictions.eq(targets) & valid).sum().float()
+        / valid.sum()
+    ).item()
+
+
+def tokenize_caption(text):
+    return re.findall(r"\w+|[^\w\s]", text.lower())
+
+
+def corpus_bleu(references, hypotheses, max_n=4):
+    """Lightweight corpus BLEU-1 through BLEU-4; no extra package required."""
+    clipped = [0] * max_n
+    totals = [0] * max_n
+    ref_length = 0
+    hyp_length = 0
+
+    for reference, hypothesis in zip(references, hypotheses):
+        ref = tokenize_caption(reference)
+        hyp = tokenize_caption(hypothesis)
+
+        ref_length += len(ref)
+        hyp_length += len(hyp)
+
+        for n in range(1, max_n + 1):
+            hyp_ngrams = Counter(
+                tuple(hyp[i:i+n])
+                for i in range(max(0, len(hyp) - n + 1))
+            )
+            ref_ngrams = Counter(
+                tuple(ref[i:i+n])
+                for i in range(max(0, len(ref) - n + 1))
+            )
+
+            clipped[n - 1] += sum(
+                min(count, ref_ngrams[gram])
+                for gram, count in hyp_ngrams.items()
+            )
+            totals[n - 1] += sum(hyp_ngrams.values())
+
+    brevity = (
+        1.0 if hyp_length >= ref_length
+        else math.exp(1 - ref_length / max(hyp_length, 1))
+    )
+
+    scores = []
+    for n in range(1, max_n + 1):
+        precisions = [
+            max(clipped[i], 1e-12) / max(totals[i], 1)
+            for i in range(n)
+        ]
+        scores.append(
+            brevity * math.exp(
+                sum(math.log(p) for p in precisions) / n
+            )
+        )
+
+    return {
+        f"caption_val_bleu_{n}": scores[n - 1]
+        for n in range(1, max_n + 1)
+    }
+
 
 def train_vqa_epoch(
     model, loader, optimizer, device, scaler, use_amp, grad_clip, max_batches
@@ -213,6 +291,8 @@ def train_vqa_epoch(
     model.train()
     total = 0.0
     batches = 0
+    accuracy_sum = 0.0
+    example_count = 0
     progress = tqdm(loader, desc="VQA", leave=False)
     for batch in progress:
         images = batch["image"].to(device, non_blocking=True)
@@ -232,6 +312,12 @@ def train_vqa_epoch(
             )
         if not torch.isfinite(loss):
             raise RuntimeError(f"Non-finite VQA loss: {loss.item()}")
+        with torch.no_grad():
+            batch_accuracy = vqa_soft_accuracy(
+                logits.detach().float(), targets.float()
+            )
+            accuracy_sum += batch_accuracy.item() * images.size(0)
+            example_count += images.size(0)
         scaler.scale(loss).backward()
         scaler.unscale_(optimizer)
         torch.nn.utils.clip_grad_norm_(model.parameters(), float(grad_clip))
@@ -244,7 +330,10 @@ def train_vqa_epoch(
             break
     if batches == 0:
         raise RuntimeError("VQA training processed zero batches.")
-    return total / batches
+    return {
+        "vqa_train_loss": total / batches,
+        "vqa_train_soft_accuracy": accuracy_sum / max(example_count, 1),
+    }
 
 
 def train_caption_epoch(
@@ -253,6 +342,8 @@ def train_caption_epoch(
     model.train()
     total = 0.0
     batches = 0
+    correct_tokens = 0
+    valid_tokens = 0
     progress = tqdm(loader, desc="Caption", leave=False)
     for batch in progress:
         images = batch["images"].to(device, non_blocking=True)
@@ -272,6 +363,13 @@ def train_caption_epoch(
             )
         if not torch.isfinite(loss):
             raise RuntimeError(f"Non-finite caption loss: {loss.item()}")
+        predictions = logits.detach().argmax(dim=-1)
+        valid = targets.ne(pad_id)
+
+        correct_tokens += int(
+            (predictions.eq(targets) & valid).sum()
+        )
+        valid_tokens += int(valid.sum())
         scaler.scale(loss).backward()
         scaler.unscale_(optimizer)
         torch.nn.utils.clip_grad_norm_(model.parameters(), float(grad_clip))
@@ -284,7 +382,12 @@ def train_caption_epoch(
             break
     if batches == 0:
         raise RuntimeError("Caption training processed zero batches.")
-    return total / batches
+    return {
+        "caption_train_loss": total / batches,
+        "caption_train_token_accuracy": (
+            correct_tokens / max(valid_tokens, 1)
+        ),
+    }
 
 
 @torch.no_grad()
@@ -326,6 +429,7 @@ def validate_caption(model, loader, device, pad_id, max_batches=0):
     model.eval()
     loss_sum = 0.0
     count = 0
+    correct_tokens = 0
     for i, batch in enumerate(
         tqdm(loader, desc="Validate caption", leave=False), start=1
     ):
@@ -344,9 +448,19 @@ def validate_caption(model, loader, device, pad_id, max_batches=0):
         count += valid_tokens
         if max_batches and i >= max_batches:
             break
+    predictions = logits.argmax(dim=-1)
+    valid = targets.ne(pad_id)
+
+    correct_tokens += int(
+        (predictions.eq(targets) & valid).sum()
+    )
     if not count:
         raise RuntimeError("Caption validation processed zero non-padding tokens.")
-    return {"caption_val_token_loss": loss_sum / count}
+    
+    return {
+        "caption_val_token_loss": loss_sum / count,
+        "caption_val_token_accuracy": correct_tokens / count,
+    }
 
 
 def main():
@@ -490,7 +604,7 @@ def main():
         record = {"epoch": epoch}
         if "vqa_train" in loaders and epoch <= int(answer_cfg["epochs"]):
             print("\nTraining VQA branch...")
-            value = train_vqa_epoch(
+            metrics = train_vqa_epoch(
                 model,
                 loaders["vqa_train"],
                 answer_opt,
@@ -500,11 +614,17 @@ def main():
                 answer_cfg.get("gradient_clip_norm", 1.0),
                 args.max_batches,
             )
-            record["vqa_train_loss"] = value
-            print(f"VQA training loss: {value:.4f}")
+
+            record.update(metrics)
+
+            print(f"VQA training loss: {metrics['vqa_train_loss']:.4f}")
+            print(
+                "VQA training soft accuracy: "
+                f"{metrics['vqa_train_soft_accuracy']:.4f}"
+            )
         if "caption_train" in loaders and epoch <= int(caption_cfg["epochs"]):
             print("\nTraining caption branch...")
-            value = train_caption_epoch(
+            metrics = train_caption_epoch(
                 model,
                 loaders["caption_train"],
                 caption_opt,
@@ -515,8 +635,14 @@ def main():
                 pad_id,
                 args.max_batches,
             )
-            record["caption_train_loss"] = value
-            print(f"Caption training loss: {value:.4f}")
+
+            record.update(metrics)
+
+            print(f"Caption training loss: {metrics['caption_train_loss']:.4f}")
+            print(
+                "Caption training token accuracy: "
+                f"{metrics['caption_train_token_accuracy']:.4f}"
+            )
         if validate_enabled and epoch % val_every == 0:
             if "vqa_val" in loaders:
                 metrics = validate_vqa(
