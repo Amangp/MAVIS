@@ -111,29 +111,29 @@ class MAVIS(nn.Module):
     # -----------------------------------------------------
     # VQA forward pass
     # -----------------------------------------------------
+    
     def forward_vqa(
         self,
         images: torch.Tensor,
         question_ids: torch.Tensor,
         return_attention: bool = False,
     ) -> dict[str, torch.Tensor]:
-        """
-        Args:
-            images: [B, 3, H, W]
-            question_ids: [B, question_length]
 
-        Returns:
-            logits: [B, num_answers]
-            image_tokens: [B, num_patches + 1, hidden_dim]
-            question_tokens: [B, question_length, hidden_dim]
-            relevance_scores: [B, num_patches + 1]
-            attention_map: optional attention weights
-        """
+        # Check input images before entering the VQA model.
+        if not torch.isfinite(images).all():
+            print("\n[DEBUG] Invalid input images!")
+            print("Shape:", tuple(images.shape))
+            print("NaNs:", torch.isnan(images).sum().item())
+            print("Infs:", torch.isinf(images).sum().item())
+            raise ValueError("Input images contain NaN or infinity.")
+
+        # Run the existing VQA forward pass.
         return self.vqa(
             images,
             question_ids,
             return_attention=return_attention,
         )
+
 
     # -----------------------------------------------------
     # Caption training forward pass

@@ -66,7 +66,24 @@ class QuestionAwareFeatureDistilling(nn.Module):
         question_mask: Optional[torch.Tensor] = None,
         visual_mask: Optional[torch.Tensor] = None,
     ) -> Dict[str, torch.Tensor]:
-        
+
+        if not torch.isfinite(visual_features).all():
+            finite_mask = torch.isfinite(visual_features)
+
+            print("\n[DEBUG] Invalid visual_features detected")
+            print("Shape:", tuple(visual_features.shape))
+            print("Dtype:", visual_features.dtype)
+            print("Device:", visual_features.device)
+            print("NaN count:", torch.isnan(visual_features).sum().item())
+            print("Inf count:", torch.isinf(visual_features).sum().item())
+            print("Finite count:", finite_mask.sum().item())
+
+            if finite_mask.any():
+                finite_values = visual_features[finite_mask]
+                print("Finite minimum:", finite_values.min().item())
+                print("Finite maximum:", finite_values.max().item())
+
+            raise ValueError("visual_features contains NaN or infinity.")
         if not torch.isfinite(visual_features).all():
             raise ValueError(
                 "visual_features contains NaN or infinity."

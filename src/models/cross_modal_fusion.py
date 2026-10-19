@@ -115,8 +115,26 @@ class MAVISCrossModalFusion(nn.Module):
         if not question_mask.any(dim=1).all():
             raise ValueError("Each question must contain at least one non-padding token.")
 
+        
         visual_tokens = self.vision_encoder(images)  # [B, N+1, visual_dim]
+
+        # DEBUG: Check whether the vision encoder produces invalid values.
+        if not torch.isfinite(visual_tokens).all():
+            print("\n[DEBUG] Vision encoder produced NaN or infinity!")
+            print("Shape:", tuple(visual_tokens.shape))
+            print("Dtype:", visual_tokens.dtype)
+            print("NaN count:", torch.isnan(visual_tokens).sum().item())
+            print("Inf count:", torch.isinf(visual_tokens).sum().item())
+
+            finite_values = visual_tokens[torch.isfinite(visual_tokens)]
+            if finite_values.numel() > 0:
+                print("Finite minimum:", finite_values.min().item())
+                print("Finite maximum:", finite_values.max().item())
+
+            raise ValueError("Vision encoder produced non-finite visual tokens.")
+
         question_tokens = self.text_encoder(question_ids, return_tokens=True)
+
 
         # The vision encoder prepends a CLS token, which is a valid visual token.
         visual_mask = torch.ones(
@@ -128,7 +146,7 @@ class MAVISCrossModalFusion(nn.Module):
         fused = self.cross_modal_fusion(
             visual_features=visual_tokens,
             question_features=question_tokens,
-            question_mask=question_mask,
+            question_maskf=question_mask,
             visual_mask=visual_mask,
         )
 
