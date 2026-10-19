@@ -289,7 +289,8 @@ def corpus_bleu(references, hypotheses, max_n=4):
 
 
 def train_vqa_epoch(
-    model, loader, optimizer, device, scaler, use_amp, grad_clip, max_batches
+    model, loader, optimizer, device, scaler, use_amp, grad_clip, max_batches,
+    debug_vqa=False,
 ):
     model.train()
     total = 0.0
@@ -313,31 +314,42 @@ def train_vqa_epoch(
                 .sum(dim=1)
                 .mean()
             )
-            if batches == 0:
+            if debug_vqa and batches == 0:
                 with torch.no_grad():
                     pred = logits.float().argmax(dim=1)
                     target = targets.float()
-
                     pred_scores = target.gather(
                         1, pred.unsqueeze(1)
                     ).squeeze(1)
+                    positive = target > 0
+                    negative = ~positive
+                    scores = logits.float()
 
-                    print("\n--- VQA Diagnostic ---")
+                    print("\n--- VQA Diagnostic (first batch) ---")
                     print("Logits shape:", tuple(logits.shape))
                     print("Targets shape:", tuple(target.shape))
                     print("Logits finite:", torch.isfinite(logits).all().item())
-                    print("Target range:",
-                        target.min().item(), target.max().item())
-                    print("Mean positive answers per sample:",
-                        (target > 0).sum(dim=1).float().mean().item())
-                    print("Mean target sum:",
-                        target.sum(dim=1).mean().item())
+                    print("Target range:", target.min().item(), target.max().item())
+                    print(
+                        "Mean positive answers per sample:",
+                        (positive).sum(dim=1).float().mean().item(),
+                    )
+                    print("Mean target sum:", target.sum(dim=1).mean().item())
                     print("Predicted answer IDs:", pred[:8].tolist())
-                    print("Target best answer IDs:",
-                        target.argmax(dim=1)[:8].tolist())
-                    print("Predicted answer consensus scores:",
-                        pred_scores[:8].tolist())
-                    print("-----------------------\n")
+                    print("Target best answer IDs:", target.argmax(dim=1)[:8].tolist())
+                    print("Predicted answer consensus scores:", pred_scores[:8].tolist())
+                    print("Mean logit:", scores.mean().item())
+                    print("Logit standard deviation:", scores.std().item())
+                    print(
+                        "Mean positive-target logit:",
+                        scores[positive].mean().item() if positive.any() else float("nan"),
+                    )
+                    print(
+                        "Mean zero-target logit:",
+                        scores[negative].mean().item() if negative.any() else float("nan"),
+                    )
+                    print("Logit min/max:", scores.min().item(), scores.max().item())
+                    print("------------------------------------\n")
         if not torch.isfinite(loss):
             raise RuntimeError(f"Non-finite VQA loss: {loss.item()}")
         with torch.no_grad():
@@ -430,7 +442,8 @@ def validate_vqa(model, loader, device, max_batches=0):
     score_sum = 0.0
     loss_sum = 0.0
     count = 0
-    for i, batch in enumerate(tqdm(loader, desc="Validate VQA", leave=False), start=1):
+    progress = tqdm(loader, desc="Validate VQA", leave=False)
+    for i, batch in enumerate(progress, start=1):
         images = batch["image"].to(device, non_blocking=True)
         questions = batch["question_ids"].to(device, non_blocking=True)
         targets = batch["answer_target"].to(device, non_blocking=True)
@@ -448,6 +461,10 @@ def validate_vqa(model, loader, device, max_batches=0):
         count += batch_n
         score_sum += float(scores.sum())
         loss_sum += float(loss) * batch_n
+        progress.set_postfix(
+            loss=f"{loss_sum / count:.3f}",
+            soft_acc=f"{score_sum / count * 100:.3f}%",
+        )
         if max_batches and i >= max_batches:
             break
     if not count:
@@ -464,9 +481,8 @@ def validate_caption(model, loader, device, pad_id, max_batches=0):
     loss_sum = 0.0
     count = 0
     correct_tokens = 0
-    for i, batch in enumerate(
-        tqdm(loader, desc="Validate caption", leave=False), start=1
-    ):
+    progress = tqdm(loader, desc="Validate caption", leave=False)
+    for i, batch in enumerate(progress, start=1):
         images = batch["images"].to(device, non_blocking=True)
         inputs = batch["caption_input_ids"].to(device, non_blocking=True)
         targets = batch["caption_targets"].to(device, non_blocking=True)
@@ -477,18 +493,19 @@ def validate_caption(model, loader, device, pad_id, max_batches=0):
             ignore_index=pad_id,
             reduction="sum",
         )
-        valid_tokens = int(targets.ne(pad_id).sum())
+        valid = targets.ne(pad_id)
+        valid_tokens = int(valid.sum())
+        predictions = logits.argmax(dim=-1)
+        correct_tokens += int((predictions.eq(targets) & valid).sum())
         loss_sum += float(loss)
         count += valid_tokens
+        progress.set_postfix(
+            token_loss=f"{loss_sum / max(count, 1):.3f}",
+            token_acc=f"{correct_tokens / max(count, 1) * 100:.2f}%",
+        )
         if max_batches and i >= max_batches:
             break
-        predictions = logits.argmax(dim=-1)
-        valid = targets.ne(pad_id)
-    
-        correct_tokens += int(
-            (predictions.eq(targets) & valid).sum()
-        )
-    
+
     if not count:
         raise RuntimeError("Caption validation processed zero non-padding tokens.")
     
@@ -521,6 +538,11 @@ def main():
         type=int,
         default=0,
         help="Limit validation batches per task; 0 means the full validation datasets.",
+    )
+    parser.add_argument(
+        "--debug-vqa",
+        action="store_true",
+        help="Print first-batch VQA logits/target diagnostics.",
     )
     args = parser.parse_args()
     if args.max_batches < 0:
@@ -648,6 +670,7 @@ def main():
                 use_amp,
                 answer_cfg.get("gradient_clip_norm", 1.0),
                 args.max_batches,
+                debug_vqa=args.debug_vqa,
             )
 
             record.update(metrics)
@@ -763,9 +786,9 @@ def main():
         print(f"Loss history saved: {history_path}")
     print("\nMAVIS training completed.")
     if args.max_batches > 0:
-        print(
-            "Sm  oke test only: validation skipped; no full-dataset or model-quality claim should be inferred."
-        )
+        print("Smoke test only: training was batch-limited; do not infer full-dataset model quality.")
+    if args.max_val_batches > 0:
+        print("Validation was batch-limited; validation metrics are only partial-sample estimates.")
 
 
 if __name__ == "__main__":
