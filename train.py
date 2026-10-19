@@ -325,7 +325,10 @@ def train_vqa_epoch(
         scaler.update()
         total += float(loss.detach())
         batches += 1
-        progress.set_postfix(loss=f"{loss.item():.3f}")
+        progress.set_postfix(
+            loss=f"{loss.item():.3f}",
+            soft_acc=f"{accuracy_sum / max(example_count, 1) * 100:.2f}%"
+        )
         if max_batches and batches >= max_batches:
             break
     if batches == 0:
