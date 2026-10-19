@@ -313,6 +313,31 @@ def train_vqa_epoch(
                 .sum(dim=1)
                 .mean()
             )
+            if batches == 0:
+                with torch.no_grad():
+                    pred = logits.float().argmax(dim=1)
+                    target = targets.float()
+
+                    pred_scores = target.gather(
+                        1, pred.unsqueeze(1)
+                    ).squeeze(1)
+
+                    print("\n--- VQA Diagnostic ---")
+                    print("Logits shape:", tuple(logits.shape))
+                    print("Targets shape:", tuple(target.shape))
+                    print("Logits finite:", torch.isfinite(logits).all().item())
+                    print("Target range:",
+                        target.min().item(), target.max().item())
+                    print("Mean positive answers per sample:",
+                        (target > 0).sum(dim=1).float().mean().item())
+                    print("Mean target sum:",
+                        target.sum(dim=1).mean().item())
+                    print("Predicted answer IDs:", pred[:8].tolist())
+                    print("Target best answer IDs:",
+                        target.argmax(dim=1)[:8].tolist())
+                    print("Predicted answer consensus scores:",
+                        pred_scores[:8].tolist())
+                    print("-----------------------\n")
         if not torch.isfinite(loss):
             raise RuntimeError(f"Non-finite VQA loss: {loss.item()}")
         with torch.no_grad():
