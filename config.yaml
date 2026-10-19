@@ -102,10 +102,10 @@ training:
     epochs: 20
     learning_rate: 0.0002
     weight_decay: 0.0001
-    num_workers: 0
+    num_workers: 2
     pin_memory: true
     gradient_clip_norm: 1.0
-    mixed_precision: false
+    mixed_precision: true
     save_every_epoch: true
 
   caption:
@@ -114,15 +114,15 @@ training:
     epochs: 20
     learning_rate: 0.0002
     weight_decay: 0.0001
-    num_workers: 0
+    num_workers: 2
     pin_memory: true
     gradient_clip_norm: 1.0
-    mixed_precision: false
+    mixed_precision: true
     save_every_epoch: true
 
 evaluation:
   batch_size: 8
-  num_workers: 0
+  num_workers: 2
   answer_top_k: 5
   caption_max_new_tokens: 30
 
