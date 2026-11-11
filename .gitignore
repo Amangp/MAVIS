@@ -1,0 +1,16 @@
+.venv/
+__pycache__/
+.pytest_cache/
+*.py[cod]
+
+.env
+.env.*
+
+outputs/
+checkpoints/
+*.pt
+*.pth
+*.ckpt
+
+datasets/
+data/
