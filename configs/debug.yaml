@@ -1,0 +1,50 @@
+# DEBUG/SMOKE-TEST configuration only.
+# This is NOT the paper's 30 + 50 epoch training schedule.
+# Run with:
+# python train.py --config configs/debug.yaml --allow-non-paper-settings
+# All QAFD/lambda values below are temporary test choices, not paper settings.
+
+seed: 42
+
+model:
+  blip_name: Salesforce/blip-image-captioning-base
+  bert_name: bert-base-uncased
+
+  # Small-run architecture values for pipeline testing only.
+  num_heads: 12
+  qafd_layers: 1
+  alpha: 0.5
+  lambda_js: 0.1
+
+  max_question_length: 32
+  max_caption_length: 32
+
+training:
+  batch_size: 2
+  num_workers: 0
+  learning_rate: 0.00002
+  weight_decay: 0.0
+  grad_clip: 1.0
+  amp: false
+  gradient_accumulation_steps: 1
+  promptcap_epochs: 1
+  qacap_epochs: 1
+  label_smoothing: 0.0
+
+data:
+  root: ./data
+  promptcap_train: data/promptcap_train.jsonl
+  qacap_train: data/qacap_train.jsonl
+
+  # Debug subset only. Both manifests must exist and contain the required
+  # image/question/caption fields.
+  max_samples: 32
+  image_size: null
+
+  # No validation manifest by default. The current trainer expects a
+  # caption-supervised validation manifest, not a raw VQA answer split.
+
+inference:
+  max_new_tokens: null
+  llm_model: null
+  llm_max_tokens: null

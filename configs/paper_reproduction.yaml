@@ -1,0 +1,72 @@
+# QACap paper-reproduction configuration.
+# Values explicitly stated in the main paper are labeled PAPER.
+# Values not stated in the main paper are marked UNVERIFIED/IMPLEMENTATION.
+# Do not report an experiment as exact reproduction until supplementary settings
+# (especially alpha and lambda_js) are verified.
+
+seed: 42
+
+model:
+  # Pretrained components. Verify the exact BLIP/BERT variants against the
+  # supplementary material or authors' released configuration if available.
+  blip_name: Salesforce/blip-image-captioning-base
+  bert_name: bert-base-uncased
+
+  # QAFD architecture settings. The main paper defines these operations but
+  # does not disclose all numeric settings in its main text.
+  num_heads: 12                 # UNVERIFIED: confirm supplementary
+  qafd_layers: 1                # UNVERIFIED: Figure 5 shows N x, but not N
+  qafd_ffn_ratio: 4.0           # UNVERIFIED implementation of the Feed Forward block in Figure 5
+  qafd_ffn_activation: relu     # UNVERIFIED implementation choice; activation is not specified in main text
+  qafd_ffn_residual: false      # UNVERIFIED implementation choice; residual convention is not specified
+  alpha: 0.5                    # UNVERIFIED: Eq. (8) defines alpha, numeric value not in main text
+  lambda_js: 0.1                # UNVERIFIED: paper refers to supplementary
+
+  # Sequence limits are implementation settings; the main paper does not
+  # report these values. null uses the pretrained tokenizer's configured limit
+  # where supported.
+  max_question_length: 40       # IMPLEMENTATION SETTING
+  max_caption_length: 64        # IMPLEMENTATION SETTING; includes EOS
+
+training:
+  batch_size: 8                 # HARDWARE/IMPLEMENTATION SETTING; verify GPU memory
+  num_workers: 4                # HARDWARE/IMPLEMENTATION SETTING
+
+  learning_rate: 0.00002        # PAPER: initial LR 2e-5 in both stages
+  promptcap_epochs: 30          # PAPER: 30 epochs
+  qacap_epochs: 50              # PAPER: 50 epochs
+
+  # The main paper does not specify the optimizer or these optimizer details.
+  # AdamW is the optimizer currently used by train.py; these values are not
+  # claimed to be author-confirmed.
+  weight_decay: 0.01             # UNVERIFIED implementation choice
+  grad_clip: 1.0                 # UNVERIFIED implementation choice
+
+  amp: true                      # IMPLEMENTATION/HARDWARE setting, not a paper method change
+  gradient_accumulation_steps: 1
+  label_smoothing: 0.0           # Preserve plain caption NLL; no smoothing specified by paper
+
+data:
+  # Relative manifest paths are resolved from the project working directory.
+  # Relative image paths inside each manifest are resolved under root.
+  root: ./data
+  promptcap_train: data/promptcap_train.jsonl
+  qacap_train: data/qacap_train.jsonl
+
+  # Do not point this to a raw OK-VQA answer-only validation JSONL.
+  # train.py's optional validation loader expects image/question/caption
+  # triplets for caption-loss validation. Leave unset until matching
+  # caption-annotated validation manifests are prepared.
+  # promptcap_val: data/promptcap_val.jsonl
+  # qacap_val: data/qacap_val.jsonl
+
+  # null leaves the pretrained BLIP processor's native image size unchanged.
+  image_size: null
+  max_samples: null
+
+inference:
+  # The paper main text does not specify the decoding length or exact API
+  # snapshot/token budget. Supply CLI arguments or environment variables.
+  max_new_tokens: null
+  llm_model: null
+  llm_max_tokens: null
