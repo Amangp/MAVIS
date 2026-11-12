@@ -1,6 +1,113 @@
-.venv/
+
+# ==========================================
+# Python
+# ==========================================
 __pycache__/
-*.pyc
-data/
-outputs/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# ==========================================
+# IDE and OS
+# ==========================================
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ==========================================
+# Environment variables and secrets
+# ==========================================
 .env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# ==========================================
+# Datasets - never commit raw datasets
+# ==========================================
+dataset/*
+!dataset/.gitkeep
+
+# Generated manifests and processed data
+data/*
+!data/.gitkeep
+
+*.jsonl
+*.arrow
+*.parquet
+*.tfrecord
+*.lmdb
+
+# ==========================================
+# Model checkpoints and weights
+# ==========================================
+checkpoints/
+checkpoint/
+weights/
+pretrained/
+models/pretrained/
+
+*.pt
+*.pth
+*.ckpt
+*.bin
+*.safetensors
+*.onnx
+*.h5
+*.hdf5
+
+# ==========================================
+# Hugging Face cache
+# ==========================================
+.cache/
+huggingface/
+hf_cache/
+transformers_cache/
+
+# ==========================================
+# Training outputs
+# ==========================================
+runs/
+wandb/
+tensorboard/
+lightning_logs/
+outputs/
+results/
+experiments/
+
+logs/
+*.log
+*.out
+
+# ==========================================
+# Temporary and cache files
+# ==========================================
+*.tmp
+*.temp
+*.bak
+*.orig
+*.npy
+*.npz
+
+# ==========================================
+# Jupyter
+# ==========================================
+.ipynb_checkpoints/

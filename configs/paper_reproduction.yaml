@@ -47,9 +47,7 @@ training:
   label_smoothing: 0.0           # Preserve plain caption NLL; no smoothing specified by paper
 
 data:
-  # Relative manifest paths are resolved from the project working directory.
-  # Relative image paths inside each manifest are resolved under root.
-  root: ./data
+  root: ./dataset
   promptcap_train: data/promptcap_train.jsonl
   qacap_train: data/qacap_train.jsonl
 
