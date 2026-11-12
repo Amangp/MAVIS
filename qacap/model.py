@@ -137,8 +137,8 @@ class QAFD(nn.Module):
         super().__init__()
         if not 0.0 <= float(alpha) <= 1.0:
             raise ValueError(f"alpha must be in [0, 1], got {alpha}")
-        if num_layers < 1:
-            raise ValueError(f"num_layers must be >= 1, got {num_layers}")
+        if isinstance(num_layers, bool) or int(num_layers) != num_layers or num_layers < 1:
+            raise ValueError(f"num_layers must be a positive integer, got {num_layers}")
         self.alpha = float(alpha)
         self.ffn_ratio = float(ffn_ratio)
         self.ffn_activation = str(ffn_activation).lower()
@@ -574,8 +574,12 @@ class QACap(nn.Module):
         length. This helper uses greedy decoding as an explicit, replaceable
         inference default; it does not claim that greedy decoding is paper-reported.
         """
-        if max_new_tokens < 1:
-            raise ValueError("max_new_tokens must be >= 1")
+        if (
+            isinstance(max_new_tokens, bool)
+            or int(max_new_tokens) != max_new_tokens
+            or max_new_tokens < 1
+        ):
+            raise ValueError("max_new_tokens must be a positive integer")
         if isinstance(questions, str):
             questions = [questions]
         if len(questions) != pixel_values.shape[0]:

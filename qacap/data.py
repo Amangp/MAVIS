@@ -72,9 +72,17 @@ class QACapDataset(Dataset):
             )
         if max_samples is not None and int(max_samples) < 0:
             raise ValueError("max_samples must be None, 0, or a positive integer")
-        if max_caption_length is not None and int(max_caption_length) < 1:
-            raise ValueError("max_caption_length must be None or at least 1")
-        if image_size is not None and int(image_size) < 1:
+        if max_caption_length is not None and (
+            isinstance(max_caption_length, bool)
+            or int(max_caption_length) != max_caption_length
+            or int(max_caption_length) < 1
+        ):
+            raise ValueError("max_caption_length must be None or a positive integer")
+        if image_size is not None and (
+            isinstance(image_size, bool)
+            or int(image_size) != image_size
+            or int(image_size) < 1
+        ):
             raise ValueError("image_size must be None or a positive integer")
 
         self.rows: List[Dict[str, Any]] = []

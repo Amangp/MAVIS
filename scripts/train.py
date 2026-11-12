@@ -65,7 +65,8 @@ from pathlib import Path
 
 
 # Allow `python scripts/train.py` from the repository root without an editable install.
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+_SCRIPT_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = _SCRIPT_DIR.parent if _SCRIPT_DIR.name == "scripts" else _SCRIPT_DIR
 if (PROJECT_ROOT / "qacap").is_dir() and str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 from typing import Any, Mapping, Optional
@@ -196,8 +197,20 @@ def _validate_paper_settings(
             "model.lambda_js is required. The main paper says its value is "
             "provided in the supplementary material; do not invent a default."
         )
-    if float(model["lambda_js"]) < 0:
-        raise ValueError("model.lambda_js must be nonnegative.")
+    lambda_js = float(model["lambda_js"])
+    if not math.isfinite(lambda_js) or lambda_js < 0:
+        raise ValueError("model.lambda_js must be finite and nonnegative.")
+    alpha = float(_require(model, "alpha", "model"))
+    if not math.isfinite(alpha) or not 0.0 <= alpha <= 1.0:
+        raise ValueError("model.alpha must be finite and in [0, 1].")
+    if int(_require(model, "num_heads", "model")) < 1:
+        raise ValueError("model.num_heads must be positive.")
+    if int(_require(model, "qafd_layers", "model")) < 1:
+        raise ValueError("model.qafd_layers must be positive.")
+    if not math.isfinite(learning_rate) or learning_rate <= 0:
+        raise ValueError("training.learning_rate must be finite and positive.")
+    if promptcap_epochs < 1 or qacap_epochs < 1:
+        raise ValueError("Both training epoch counts must be positive.")
 
     if float(training.get("label_smoothing", 0.0)) != 0.0:
         raise ValueError(
@@ -211,6 +224,19 @@ def _validate_paper_settings(
         raise ValueError("training.num_workers cannot be negative.")
     if int(training.get("gradient_accumulation_steps", 1)) < 1:
         raise ValueError("gradient_accumulation_steps must be at least 1.")
+    weight_decay = float(training.get("weight_decay", 0.0))
+    if not math.isfinite(weight_decay) or weight_decay < 0:
+        raise ValueError("training.weight_decay must be finite and nonnegative.")
+    grad_clip = training.get("grad_clip")
+    if grad_clip is not None and (
+        not math.isfinite(float(grad_clip)) or float(grad_clip) <= 0
+    ):
+        raise ValueError("training.grad_clip must be finite and positive when supplied.")
+
+    for key in ("promptcap_train", "qacap_train"):
+        manifest = Path(_require(config["data"], key, "data"))
+        if not manifest.is_file():
+            raise FileNotFoundError(f"Training manifest does not exist: {manifest.resolve()}")
 
     # These values are present in the initial project config, but the paper's
     # main text does not state them. Surface that distinction in the log.
@@ -223,6 +249,10 @@ def _validate_paper_settings(
             raise KeyError(f"model.{key} is required; do not infer this value.")
         unconfirmed.append(f"model.{key}={model[key]!r}")
 
+    optimizer_name = str(training.get("optimizer", "adamw")).lower()
+    if optimizer_name not in {"adam", "adamw"}:
+        raise ValueError("training.optimizer must be 'adam' or 'adamw'.")
+    unconfirmed.append(f"training.optimizer={optimizer_name!r}")
     if "weight_decay" in training:
         unconfirmed.append(f"training.weight_decay={training['weight_decay']!r}")
     if training.get("grad_clip") is not None:
@@ -900,15 +930,17 @@ def main() -> None:
     if weight_decay < 0:
         raise ValueError("training.weight_decay cannot be negative.")
 
-    # The main paper states the learning rate but does not specify the
-    # optimizer implementation in its main text. AdamW is retained from the
-    # existing project trainer as an explicitly configurable implementation
-    # choice, not claimed as a paper-confirmed optimizer.
-    optimizer = torch.optim.AdamW(
+    optimizer_name = str(training.get("optimizer", "adamw")).lower()
+    optimizer_class = {
+        "adam": torch.optim.Adam,
+        "adamw": torch.optim.AdamW,
+    }[optimizer_name]
+    optimizer = optimizer_class(
         [parameter for parameter in model.parameters() if parameter.requires_grad],
         lr=learning_rate,
         weight_decay=weight_decay,
     )
+    print(f"optimizer={optimizer_name}, weight_decay={weight_decay:g}")
 
     amp_enabled = bool(training.get("amp", False)) and device.type == "cuda"
     scaler = _make_grad_scaler(amp_enabled)

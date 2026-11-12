@@ -31,6 +31,7 @@ def caption_nll(
     labels: torch.Tensor,
     ignore_index: int = -100,
     label_smoothing: float = 0.0,
+    reduction: str = "mean",
 ) -> torch.Tensor:
     """Caption negative log-likelihood for teacher-forced decoder outputs.
 
@@ -42,9 +43,8 @@ def caption_nll(
             ``data_updated.py`` uses ``-100`` for PET prompt and pad positions.
         label_smoothing: Explicit loss smoothing value; use 0.0 unless a
             paper/supplementary source specifies otherwise.
-
-    Returns:
-        Scalar mean cross-entropy loss over non-ignored target tokens.
+        reduction: ``"mean"`` averages valid target tokens; ``"sum"`` sums
+            token losses. Keep the reduction explicit when comparing runs.
     """
     if logits.ndim != 3:
         raise ValueError(f"logits must have shape [B,T,V], got {tuple(logits.shape)}")
@@ -57,6 +57,8 @@ def caption_nll(
         )
     if not 0.0 <= float(label_smoothing) < 1.0:
         raise ValueError("label_smoothing must be in [0, 1)")
+    if reduction not in {"mean", "sum"}:
+        raise ValueError("reduction must be 'mean' or 'sum'")
 
     flat_labels = labels.reshape(-1)
     valid_count = flat_labels.ne(int(ignore_index)).sum()
@@ -70,6 +72,7 @@ def caption_nll(
         flat_labels,
         ignore_index=int(ignore_index),
         label_smoothing=float(label_smoothing),
+        reduction=reduction,
     )
 
 
@@ -186,6 +189,8 @@ def js_divergence(
     Returns:
         Scalar batch-mean JS divergence.
     """
+    if not torch.isfinite(torch.tensor(float(eps))) or eps <= 0:
+        raise ValueError("eps must be a finite positive number")
     p = regional_attention_distribution(
         attn_q, query_mask=q_query_mask, eps=eps, name="QAFD attention"
     )
@@ -202,6 +207,8 @@ def js_divergence(
     # Inputs are probability distributions and remain differentiable.
     p = p.clamp_min(eps)
     q = q.clamp_min(eps)
+    p = p / p.sum(dim=-1, keepdim=True)
+    q = q / q.sum(dim=-1, keepdim=True)
     midpoint = 0.5 * (p + q)
     kl_pm = (p * (p.log() - midpoint.log())).sum(dim=-1)
     kl_qm = (q * (q.log() - midpoint.log())).sum(dim=-1)
@@ -232,8 +239,8 @@ def qacap_total_loss(
 
     Returns a dictionary with ``loss``, ``caption_loss`` and ``js_loss``.
     """
-    if lambda_js < 0:
-        raise ValueError(f"lambda_js must be nonnegative, got {lambda_js}")
+    if not torch.isfinite(torch.tensor(float(lambda_js))) or lambda_js < 0:
+        raise ValueError(f"lambda_js must be nonnegative and finite, got {lambda_js}")
 
     caption_loss = caption_nll(
         logits=logits,

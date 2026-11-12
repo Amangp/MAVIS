@@ -44,10 +44,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import hashlib
+import math
 import os
 import re
 import sys
 import tempfile
+from collections import Counter
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any, Optional
@@ -194,6 +197,9 @@ def _require_three_candidates(
         if not isinstance(candidate, str) or not candidate.strip():
             raise ValueError(f"{stage} candidate {index} is empty or not a string.")
         cleaned.append(candidate.strip())
+    normalized = [" ".join(_normalize_for_match(item)) for item in cleaned]
+    if len(set(normalized)) != 3:
+        raise ValueError(f"{stage} returned duplicate captions; three distinct candidates are required.")
     return cleaned
 
 
@@ -254,19 +260,16 @@ def _normalize_for_match(text: str) -> list[str]:
 
 
 def _answer_occurs_in_order(reference: str, response: str) -> bool:
-    """Check whether reference words appear in the LLM response in order."""
+    """Check whether a normalized answer phrase occurs contiguously in a response."""
     ref_tokens = _normalize_for_match(reference)
     response_tokens = _normalize_for_match(response)
-    if not ref_tokens:
+    if not ref_tokens or len(ref_tokens) > len(response_tokens):
         return False
-
-    position = 0
-    for token in ref_tokens:
-        try:
-            position = response_tokens.index(token, position) + 1
-        except ValueError:
-            return False
-    return True
+    width = len(ref_tokens)
+    return any(
+        response_tokens[index : index + width] == ref_tokens
+        for index in range(len(response_tokens) - width + 1)
+    )
 
 
 def _score_helpfulness(
@@ -334,7 +337,10 @@ class CLIPTruthfulnessScorer:
         image_embeds = torch.nn.functional.normalize(outputs.image_embeds.float(), dim=-1)
         text_embeds = torch.nn.functional.normalize(outputs.text_embeds.float(), dim=-1)
         similarities = (image_embeds * text_embeds).sum(dim=-1)
-        return [float(value) for value in similarities.detach().cpu().tolist()]
+        scores = [float(value) for value in similarities.detach().cpu().tolist()]
+        if len(scores) != len(captions) or not all(math.isfinite(value) for value in scores):
+            raise RuntimeError("CLIP returned missing or non-finite image-caption scores.")
+        return scores
 
 
 def select_best_caption(
@@ -347,6 +353,10 @@ def select_best_caption(
         len(candidates) == len(answer_scores) == len(clip_scores)
     ):
         raise ValueError("Candidates and score arrays must have equal non-zero lengths.")
+    if any(not isinstance(score, int) or score < 0 for score in answer_scores):
+        raise ValueError("Answer scores must be nonnegative integers.")
+    if any(not math.isfinite(float(score)) for score in clip_scores):
+        raise ValueError("CLIP scores must be finite numbers.")
 
     best_answer_score = max(answer_scores)
     top_indices = [
@@ -369,13 +379,22 @@ def select_best_caption(
 
 
 def _record_key(row: Mapping[str, Any]) -> str:
-    """Stable resume key, preferring dataset IDs when present."""
+    """Stable resume key, preferring dataset-scoped question IDs."""
+    source = row.get("dataset", row.get("source_dataset", ""))
+    prefix = f"dataset:{source}|" if source else ""
     for key in ("question_id", "questionId", "qid", "qa_id"):
         if row.get(key) is not None:
-            return f"{key}:{row[key]}"
-    # Do not use a generic `id` field here: some manifests store image_id in
-    # that field, and one image can have multiple different questions.
-    return f"image:{row.get('image', '')}|question:{row.get('question', '')}"
+            return f"{prefix}{key}:{row[key]}"
+    return f"{prefix}image:{row.get('image', '')}|question:{row.get('question', '')}"
+
+
+def _input_fingerprint(row: Mapping[str, Any]) -> str:
+    fields = {
+        key: row.get(key)
+        for key in ("dataset", "source_dataset", "image", "question", "answers", "coco_captions")
+    }
+    payload = json.dumps(fields, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def _load_jsonl(path: Path) -> list[dict[str, Any]]:
@@ -649,6 +668,10 @@ def main() -> None:
     input_rows = _load_jsonl(input_path)
     if args.limit is not None:
         input_rows = input_rows[: args.limit]
+    input_keys = [_record_key(row) for row in input_rows]
+    duplicate_keys = sorted(key for key, count in Counter(input_keys).items() if count > 1)
+    if duplicate_keys:
+        raise ValueError(f"Input manifest contains duplicate question keys: {duplicate_keys[:10]}")
 
     if args.overwrite:
         completed_rows: list[dict[str, Any]] = []
@@ -657,11 +680,14 @@ def main() -> None:
     else:
         completed_rows = []
 
-    completed_by_key = {
-        _record_key(row): row
-        for row in completed_rows
-        if row.get("_qacap_candidate_generation_complete") is True
-    }
+    completed_by_key: dict[str, dict[str, Any]] = {}
+    for saved_row in completed_rows:
+        if saved_row.get("_qacap_candidate_generation_complete") is not True:
+            continue
+        saved_key = _record_key(saved_row)
+        if saved_key in completed_by_key:
+            raise ValueError(f"Existing output contains duplicate completed question key: {saved_key}")
+        completed_by_key[saved_key] = saved_row
 
     # Preserve previous completed rows when resuming; keep input order in output.
     ordered_results: list[dict[str, Any]] = []
@@ -680,8 +706,10 @@ def main() -> None:
 
     for index, row in enumerate(input_rows, start=1):
         key = _record_key(row)
-        if key in completed_by_key:
-            ordered_results.append(completed_by_key[key])
+        fingerprint = _input_fingerprint(row)
+        saved = completed_by_key.get(key)
+        if saved is not None and saved.get("_qacap_input_fingerprint") == fingerprint:
+            ordered_results.append(saved)
             print(f"[{index}/{len(input_rows)}] Already complete; skipped: {key}")
             continue
 
@@ -697,17 +725,9 @@ def main() -> None:
             clip_scorer=clip_scorer,
             blocked_phrases=blocked_phrases,
         )
+        processed["_qacap_input_fingerprint"] = fingerprint
         ordered_results.append(processed)
-
-        # Retain any completed records from the existing output not represented
-        # in this current input slice, then write atomically after every sample.
-        current_keys = {_record_key(item) for item in ordered_results}
-        trailing_existing = [
-            item for item in completed_rows
-            if item.get("_qacap_candidate_generation_complete") is True
-            and _record_key(item) not in current_keys
-        ]
-        _atomic_write_jsonl(output_path, ordered_results + trailing_existing)
+        _atomic_write_jsonl(output_path, ordered_results)
         print(
             f"  selected candidate {processed['candidate_selection']['selected_index']} "
             f"(answer score={processed['candidate_selection']['best_answer_score']}, "
@@ -717,14 +737,7 @@ def main() -> None:
     if not input_rows:
         raise ValueError("Input JSONL contains no records to process.")
 
-    # Ensure output exists even when all rows were already complete.
-    current_keys = {_record_key(item) for item in ordered_results}
-    trailing_existing = [
-        item for item in completed_rows
-        if item.get("_qacap_candidate_generation_complete") is True
-        and _record_key(item) not in current_keys
-    ]
-    _atomic_write_jsonl(output_path, ordered_results + trailing_existing)
+    _atomic_write_jsonl(output_path, ordered_results)
     print(f"Completed caption manifest: {output_path.resolve()}")
 
 

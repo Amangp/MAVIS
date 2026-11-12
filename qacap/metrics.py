@@ -17,9 +17,7 @@ module keeps the metric explicit rather than silently inventing one.
 
 from __future__ import annotations
 
-import re
-import string
-from collections.abc import Iterable, Sequence
+from collections.abc import Sequence
 from typing import Any
 
 
